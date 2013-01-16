@@ -1,0 +1,54 @@
+<?php
+/*
+ * @file
+ * Publication download widget installer
+ *
+ * Creates db for module on install, removes on uninstall
+ */
+
+/**
+ * Implements Hook_install()
+ */
+ 
+function publication_download_widget_install() {
+}
+function publication_download_widget_uninstall() {
+	//db_delete('publication_downloads');
+}
+function publication_download_widget_schema() {
+  $schema['publication_downloads'] = array(
+    'description' => t(''),
+    'fields' => array(
+      'hash' => array(
+        'description' => t('Unique download identifier'),
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'email' => array(
+        'description' => t('Email of user who requested download'),
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'nid' => array(
+      	'description' => t('nid of file being requested'),
+      	'type' => 'int',
+      	'length' => 32,
+      	'not null' => TRUE,
+      	'default' => 0,
+      ),
+      'ip' => array(
+      	'description' => t('IP requesting data'),
+      	'type' => 'varchar',
+      	'length' => 20,
+      	'not null' => TRUE,
+      	'default' => 0,
+      ),
+    ),
+    'primary key' => array('hash'),
+  );
+  return $schema;     
+}

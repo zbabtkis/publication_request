@@ -1,0 +1,212 @@
+<?php
+/**
+ * @file
+ * Creates link, form and file downloader to request publications created by the Biblio module.
+ */
+ 
+/**
+ * Implements Hook_page_alter()
+ */
+function publication_download_widget_page_alter(&$page) {
+	global $base_url;
+	if(isset($page['content']['system_main']['nodes'])) {
+		// Uses get_nid function to find the node based on an array in the $page variable.
+		$nid = get_nid($page['content']['system_main']['nodes']);
+		$node = node_load($nid);
+		// Check to see if the section we want to insert a link into exists.
+		if(isset($page['content']['system_main']['nodes'][$nid]['links'])) {
+			// Check if Publication node contains a file.
+			if(isset($node->field_publication_file['und'])) {
+				// Creates new link on Biblio Publication pages to request publication file.
+				$page['content']['system_main']['nodes'][$nid]['links']['biblio_download'] = array(
+				'#links' => array(
+					'biblio_download' => array(
+						'attributes' => array(
+							'title' => 'Click to get this publication by email'),
+						'href' => $base_url . '/publications/send/' . $nid,
+						'title' => 'Get PDF')),
+				'#attributes' => array(
+					'class' => array('link','inline')));
+			}
+		}
+	}
+}
+/**
+ * Implements function to get all values of type nid
+ * from an array existing in the $page variable
+ */
+function get_nid($nodes) {
+	foreach($nodes as $nid=>$node) {
+		// If it exists in this array on the page variable and is an integer then it is the node id.
+		if(gettype($nid) == "integer") {
+			return $nid;
+		}
+	}
+}
+/**
+ * Implements Hook_menu
+ */
+function publication_download_widget_menu() {
+	$items = array();
+	// Creates form to request Pub file.
+	$items['publications/send/%']= array( 
+		'title' => 'Publication Download',
+		'page callback' => 'drupal_get_form',
+		'page arguments' => array('publication_download_widget_sender'),
+		'access arguments' => array('access content'),
+		'type' => MENU_NORMAL_ITEM);
+	
+	// Creates menu for retrieving pdf download from md5 hash.
+	$items['publications/pickup/%'] = array(
+		'title' => "Publication pickup",
+		'page callback' => 'publication_download_widget_pickup',
+		'page arguments' => array(),
+		'access arguments' => array('access content'),
+		'type' => MENU_NORMAL_ITEM);
+	return $items;
+}
+/**
+ * Implements function to spark PDF download from
+ * the node associated with an md5 hash in the
+ * publication_downloads table.
+ */
+function publication_download_widget_pickup($hash) {
+	// Allows us to use Drupal base url argument to create download link.
+	global $base_url;
+	
+	// Sets error messages for flawed file retrieval attempt.
+	$no_db_connect = "The file you requested is not available. Please check the link you recieved in your email or try requesting the publication again.";
+	$no_node = "Sorry, the publication you requested no longer exists.";
+	$no_file = "The publication you requested does not have a file associated with it.";
+	
+	// Sets pub files directory.
+	$pubs_path = '/sites/default/files/publications/';
+	// Creates and executes new DB query to select the node id of the file associated with the md5 hash that is being passed in as an argument in the URL.
+	$query = db_select('publication_downloads','pd');
+	$query->fields('pd', array('nid','hash'));
+  $query->condition('hash', $hash,'=');
+  if($result = $query->execute()->fetchAll()) {
+		$nid = $result[0]->nid;
+		// Checks to see if node id exists and loads node from node ID pulled from db table.
+		if($node = node_load($nid)) {
+			// Gets filename of corresponding pub file.
+			if($filename = $node->field_publication_file['und'][0]['filename']) {
+				// Sets full url path to generate download.
+				$file = $base_url . $pubs_path . $filename;
+				// Page should generate PDF download.
+				header('Content-type: application/pdf');
+				// Sets file name.
+				header("Content-Disposition: attachment; filename='$filename'");
+				// Reads PDF file into page.
+				readfile($file);
+			}
+			else {
+				drupal_set_message($no_file);
+			}
+		}
+		else {
+			drupal_set_message($no_node);
+		}
+	}
+	else {
+		drupal_set_message($no_db_connect);
+	}
+}
+/**
+ * Implements form handler to send link to PDF to 
+ * a user and saves the results in the publication_downloads
+ * db.
+ */
+function publication_download_widget_create_hash($form) {
+	// Provides fields needed for generating db entry and email link to user.
+	global $base_url;
+	$ip = $_SERVER['REMOTE_ADDR'];
+	$email = $form['publication_download_email']['#value'];
+	$nid = $form['publication_download_nid']['#value'];
+	$hash = md5(time());
+	
+	// This will appear as the subject before the site name.
+	$subject_main = "Publication request from";
+	// DON'T CHANGE THIS UNLESS YOU CHANGE THE MENU HOOK TOO.
+	$pubs_directory = "/publications/pickup/";
+	
+	// Messages for different form events.
+	$message_greeting = "A one time link to the publication that you requested has been created. You can download it by following this link: ";
+	$success = "Your publication has been sent!";
+	$no_email = "An email could not be sent using the information you provided. Please try again.";
+	$db_error = "Could not connect to db. Your request cannot be fulfilled at this time. Please try back later.";
+	$no_file = "Sorry, the publication you are requesting does not have a file associated with it.";
+	$no_pub = "The publication you are requesting does not exist.";
+	
+	// Checks to see if the URL argument is an existing node.
+  if($node = node_load($nid)) {
+  	// Checks to see if the publication has a file associated with it.
+  	if(isset($node->field_publication_file['und'][0]['filename'])) {
+  		// Sets record for download to be recorded into db.
+			$record = array (
+				"email" => $email,
+				"hash" => $hash,
+				"nid" => $nid,
+				"ip" => $ip);
+			// Checks to see if db write is successful.
+			if(drupal_write_record ('publication_downloads', $record)) {
+				$pdf_loc = $base_url . $pubs_directory . $hash;
+				$message = $message_greeting . $pdf_loc;
+				// Sends email to user with link to file generating page and checks for mail sent success.
+				if(mail($email, $subject_main . $base_url, $message, null, '-pubs@biogeog.ucsb.com')) {
+					drupal_set_message($success);
+				}
+				else {
+					drupal_set_message($no_email);
+				}
+			}
+			else {
+				drupal_set_message($db_error);
+			}
+		}
+		else {
+			drupal_set_message($no_file);
+		}
+	}
+	else{
+		drupal_set_message($no_pub);
+	}
+}
+/**
+ * Implements form callback function to create
+ * email sender form
+ */
+function publication_download_widget_sender() {
+	// URL argument should be NID.
+	$nid = arg(2);
+	// Alert this if no node exists for the given node id.
+	$node_not_found_error = "Sorry, the publication you are requesting does not exist";
+	$file_not_found_error = "Sorry, the publication you requested does not have a file assocaited with it.";
+	if($node = node_load($nid)) {
+		// Checks to see if node has file associated with it.
+		if(isset($node->field_publication_file['und'][0]['filename'])) {
+			// Email address that will be sent link to file.
+			$form ['publication_download_email'] = array(
+				'#title' => t('Enter your email'),
+				'#description' => t('The publication you requested will be sent to this address.'),
+				'#type' => 'textfield');
+			// Holds hidden nid to bind to md5 hash for file retrieval.
+			$form['publication_download_nid'] = array(
+				'#default_value' => $nid,
+				'#type' => 'hidden');
+			$form['submit'] = array(
+				'#type' => 'submit', 
+				'#value' => t('Get Document Link')
+			);
+			// Custom submit handler.
+			$form['#submit'][] = 'publication_download_widget_create_hash';
+			return $form;
+		}
+		else {
+			drupal_set_message($file_not_found_error,"error");
+		}
+	}
+	else {
+		drupal_set_message($node_not_found_error,"error");
+	}
+}

@@ -1,0 +1,4 @@
+name = Publication Download Widget
+description = Adds download widget for publication PDFs that have been uploaded to the biogeog website.
+core = 7.x
+version = 7.x-1.0
